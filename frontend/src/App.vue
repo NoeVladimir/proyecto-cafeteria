@@ -1,22 +1,17 @@
 <script setup>
-import { ref } from 'vue'
-
-const message = ref('Entorno listo')
+import { computed, onMounted, ref } from 'vue'
+import { api, useAuth } from './composables/useAuth'
+const { user, loading, error, register, login, logout } = useAuth()
+const mode=ref('login'), name=ref(''), email=ref(''), password=ref(''), products=ref([]), slots=ref([]), cart=ref([]), selectedSlot=ref(''), orders=ref([]), notice=ref(''), ordering=ref(false)
+const total=computed(()=>cart.value.reduce((sum,item)=>sum+Number(item.price)*item.quantity,0))
+onMounted(async()=>{try{[products.value,slots.value]=await Promise.all([api('/products'),api('/pickup-slots')]);selectedSlot.value=slots.value[0]?.label||''}catch{notice.value='No se pudo cargar el catálogo. Inicia la API en el puerto 8080.'}})
+async function submit(){notice.value='';try{mode.value==='register'?await register(name.value,email.value,password.value):await login(email.value,password.value);notice.value='Sesión lista. Ya puedes crear un pedido.';await loadOrders()}catch{}}
+function add(product){const line=cart.value.find(x=>x.id===product.id);line?line.quantity++:cart.value.push({...product,quantity:1})}
+function change(item,amount){item.quantity+=amount;if(!item.quantity)cart.value=cart.value.filter(x=>x.id!==item.id)}
+async function loadOrders(){if(user.value?.token)orders.value=await api('/my/orders',user.value.token)}
+async function placeOrder(){ordering.value=true;try{const order=await api('/orders',user.value.token,{method:'POST',body:JSON.stringify({pickupSlot:selectedSlot.value,items:cart.value.map(x=>({productId:x.id,quantity:x.quantity}))})});cart.value=[];orders.value.unshift(order);notice.value=`Pedido #${order.id} creado. Código de retiro: ${order.pickupCode}`}catch(e){notice.value=e.message}finally{ordering.value=false}}
 </script>
-
-<template>
-  <main>
-    <p class="eyebrow">CAFETERIA</p>
-    <h1>Tu café empieza aquí.</h1>
-    <p>{{ message }} con Vue.js, Spring Boot y PostgreSQL.</p>
-  </main>
-</template>
-
-<style>
-:root { font-family: Georgia, serif; color: #30261f; background: #f4eee5; }
-body { margin: 0; min-width: 320px; }
-main { max-width: 760px; margin: 18vh auto; padding: 2rem; }
-.eyebrow { color: #a04b2c; font: 700 .8rem/1 sans-serif; letter-spacing: .18em; }
-h1 { font-size: clamp(2.8rem, 8vw, 6rem); line-height: .95; margin: 1rem 0; }
-p { font-size: 1.15rem; line-height: 1.5; }
-</style>
+<template><main><header><div><p class="eyebrow">COOPERATIVA ESCOLAR</p><h1>COOP UES</h1><p>Pedidos anticipados, sin filas.</p></div><button v-if="user" class="soft" @click="logout">Cerrar sesión</button></header>
+<section v-if="!user" class="card auth"><div class="tabs"><button :class="{active:mode==='login'}" @click="mode='login'">Ingresar</button><button :class="{active:mode==='register'}" @click="mode='register'">Registro</button></div><form @submit.prevent="submit"><label v-if="mode==='register'">Nombre<input v-model.trim="name" required></label><label>Correo institucional<input v-model.trim="email" type="email" required></label><label>Contraseña (mínimo 8)<input v-model="password" type="password" minlength="8" required></label><p v-if="error" class="error">{{error}}</p><button :disabled="loading">{{loading?'Enviando…':mode==='login'?'Entrar':'Crear cuenta'}}</button></form></section>
+<section v-else class="dashboard"><div class="card welcome"><p class="eyebrow">SESIÓN ACTIVA</p><h2>Hola, {{user.name}}</h2><p>Selecciona productos y tu franja de retiro.</p></div><div class="catalog"><article v-for="product in products" :key="product.id" class="card product"><small>{{product.category}}</small><h3>{{product.name}}</h3><p v-if="product.allergens">Alérgenos: {{product.allergens}}</p><strong>${{Number(product.price).toFixed(2)}}</strong><button @click="add(product)">Agregar</button></article></div><aside class="card cart"><h2>Tu carrito</h2><p v-if="!cart.length">Aún no agregaste productos.</p><div v-for="item in cart" :key="item.id" class="line"><span>{{item.name}} × {{item.quantity}}</span><button @click="change(item,-1)">−</button><button @click="change(item,1)">+</button></div><label>Franja de retiro<select v-model="selectedSlot"><option v-for="slot in slots" :key="slot.label">{{slot.label}}</option></select></label><h3>Total: ${{total.toFixed(2)}}</h3><button :disabled="!cart.length||ordering" @click="placeOrder">{{ordering?'Creando…':'Confirmar pedido'}}</button></aside><section class="card orders"><h2>Mis pedidos</h2><p v-if="!orders.length">Tus próximos pedidos aparecerán aquí.</p><article v-for="order in orders" :key="order.id"><strong>#{{order.id}} · {{order.status}}</strong><span>{{order.pickupSlot}} · código {{order.pickupCode}} · ${{Number(order.total).toFixed(2)}}</span></article></section></section><p v-if="notice" class="notice">{{notice}}</p></main></template>
+<style>:root{font-family:system-ui,sans-serif;color:#24201b;background:#f7f1e8}*{box-sizing:border-box}body{margin:0}main{max-width:1100px;margin:auto;padding:2rem}header{display:flex;justify-content:space-between;align-items:start;margin-bottom:2rem}h1{font-size:clamp(2.4rem,7vw,4.5rem);margin:.1rem 0}h2,h3,p{margin-top:.3rem}.eyebrow,small{color:#9b431f;font-weight:800;letter-spacing:.1em}.card{background:#fffdf9;border:1px solid #decdbb;border-radius:14px;padding:1.25rem;box-shadow:0 8px 24px #70421a12}.auth{max-width:420px;margin:auto}form{display:grid;gap:1rem}label{display:grid;gap:.35rem;font-weight:700}input,select{padding:.7rem;border:1px solid #cbbba9;border-radius:7px;font:inherit}.tabs{display:flex;gap:1rem;margin-bottom:1rem}button{border:0;border-radius:7px;padding:.7rem 1rem;background:#a94c26;color:#fff;font-weight:800;cursor:pointer}.soft,.tabs button{background:#eee3d7;color:#422f25}.tabs .active{background:#a94c26;color:#fff}button:disabled{opacity:.6}.dashboard{display:grid;grid-template-columns:1fr 330px;gap:1rem}.welcome,.orders{grid-column:1/-1}.catalog{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem}.product{display:grid;gap:.45rem}.product button{margin-top:auto}.cart{height:max-content}.line{display:grid;grid-template-columns:1fr 32px 32px;gap:.3rem;margin:.6rem 0}.line button{padding:.25rem}.orders article{display:flex;justify-content:space-between;gap:1rem;padding:.8rem 0;border-top:1px solid #eadfd3}.notice{position:fixed;bottom:1rem;right:1rem;background:#243d2c;color:#fff;padding:1rem;border-radius:8px}.error{color:#a11919}@media(max-width:700px){main{padding:1rem}.dashboard{grid-template-columns:1fr}.orders article{display:grid;gap:.3rem}}</style>
